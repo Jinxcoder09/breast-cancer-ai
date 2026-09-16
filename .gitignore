@@ -1,22 +1,4 @@
 ```
-# Docker related
-.dockerignore
-Dockerfile.*
-
-# Logs and temp files
-*.log
-*.tmp
-*.swp
-
-# Environment
-.env
-.env.local
-*.env.*
-
-# Editors
-.vscode/
-.idea/
-
 # Dependencies
 node_modules/
 .venv/
@@ -24,14 +6,8 @@ venv/
 __pycache__/
 .mypy_cache/
 .pytest_cache/
-dist/
-build/
 target/
 .gradle/
-
-# OS generated files
-.DS_Store
-Thumbs.db
 
 # Compiled files
 *.pyc
@@ -44,12 +20,33 @@ Thumbs.db
 *.obj
 *.out
 
-# Coverage reports
+# Build artifacts
+dist/
+build/
 coverage/
 htmlcov/
+*.log
+*.tmp
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System
+.DS_Store
+Thumbs.db
+
+# Coverage
 .coverage
 
-# Compressed files
+# Archives
 *.zip
 *.gz
 *.tar
@@ -68,4 +65,8 @@ htmlcov/
 *.Z
 *.lz
 *.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
 ```
