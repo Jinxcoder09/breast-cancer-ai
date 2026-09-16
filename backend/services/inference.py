@@ -29,6 +29,9 @@ logger = get_logger(__name__)
 # Class labels
 IDX_TO_CLASS = {0: 'normal', 1: 'benign', 2: 'malignant'}
 
+# Limit PyTorch thread overhead for memory optimization on cloud hosts
+torch.set_num_threads(1)
+
 # Global model holders (singleton pattern)
 _seg_model = None
 _cls_model = None
@@ -97,7 +100,7 @@ def load_models(weights_dir: str = "weights"):
     cls_weights = weights_path / "cls_model.pth"
 
     # ── Load Segmentation Model ────────────────────────────────────────────
-    if seg_weights.exists():
+    if seg_weights.exists() and seg_weights.stat().st_size > 1000:
         try:
             _seg_model = get_segmentation_model().to(device)
             raw_state = torch.load(str(seg_weights), map_location=device)
@@ -112,32 +115,20 @@ def load_models(weights_dir: str = "weights"):
             ok = _load_state_dict_robust(_seg_model, state, "SegmentationModel")
             if ok:
                 _seg_model.eval()
-                # Quick trained-ness check
                 out_bias = state.get("out.bias")
                 is_trained = (out_bias is not None and float(out_bias.abs().mean()) > 0.05)
                 logger.info(f"✅ Seg model ready | appears_trained={is_trained}")
-                if not is_trained:
-                    logger.warning(
-                        "⚠️ Seg model appears UNTRAINED. "
-                        "Run: python fast_train.py  to train it (~35 min on CPU). "
-                        "Using classical CV fallback in the meantime."
-                    )
             else:
                 _seg_model = None
         except Exception as e:
             logger.error(f"❌ Failed to load seg weights: {e}")
             _seg_model = None
     else:
-        logger.warning(f"⚠️ Seg weights not found at {seg_weights} — initializing default architecture (will use Classical CV fallback)")
-        try:
-            _seg_model = get_segmentation_model().to(device)
-            _seg_model.eval()
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize default seg model: {e}")
-            _seg_model = None
+        logger.info(f"ℹ️ Seg weights not found at {seg_weights} — using lightweight Classical CV fallback")
+        _seg_model = None
 
     # ── Load Classification Model ──────────────────────────────────────────
-    if cls_weights.exists():
+    if cls_weights.exists() and cls_weights.stat().st_size > 1000:
         try:
             _cls_model = get_classification_model(num_classes=3).to(device)
             raw_state = torch.load(str(cls_weights), map_location=device)
@@ -157,15 +148,10 @@ def load_models(weights_dir: str = "weights"):
             logger.error(f"❌ Failed to load cls weights: {e}")
             _cls_model = None
     else:
-        logger.warning(f"⚠️ Cls weights not found at {cls_weights} — initializing default architecture")
-        try:
-            _cls_model = get_classification_model(num_classes=3).to(device)
-            _cls_model.eval()
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize default cls model: {e}")
-            _cls_model = None
+        logger.info(f"ℹ️ Cls weights not found at {cls_weights} — using heuristic classification")
+        _cls_model = None
 
-    return _seg_model is not None
+    return True
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -299,50 +285,52 @@ def run_inference(image_path: str) -> dict:
     device = get_device()
 
     if _seg_model is None:
-        raise RuntimeError(
-            "Segmentation model not loaded. "
-            "Run: python fast_train.py  to train it."
-        )
-
-    # ── Step 1: Preprocess ──────────────────────────────────────────────────
-    original_rgb, seg_tensor, (H, W) = load_and_preprocess_image(image_path)
-    seg_tensor = seg_tensor.to(device)
-
-    # ── Step 2: Deep Learning Segmentation ─────────────────────────────────
-    _seg_model.eval()
-    with torch.no_grad():
-        seg_output = _seg_model(seg_tensor)
-
-    raw_pred_tensor = seg_output.squeeze()
-
-    # Apply sigmoid if model returned raw logits (outside [0,1])
-    if raw_pred_tensor.min() < -0.01 or raw_pred_tensor.max() > 1.01:
-        logger.warning("⚠️ Raw logits detected — applying sigmoid")
-        raw_pred_tensor = torch.sigmoid(raw_pred_tensor)
-
-    raw_pred = raw_pred_tensor.cpu().numpy()
-    pred_range = float(raw_pred.max() - raw_pred.min())
-
-    logger.info(
-        f"DL output: min={raw_pred.min():.6f}, max={raw_pred.max():.6f}, "
-        f"mean={raw_pred.mean():.6f}, range={pred_range:.6f}, "
-        f">0.5px={int((raw_pred > 0.5).sum())}"
-    )
-
-    # ── Step 3: Choose segmentation path ───────────────────────────────────
-    if pred_range >= _FLAT_OUTPUT_THRESHOLD:
-        # PRIMARY PATH: DL model has meaningful output
-        logger.info("✅ Using DL segmentation path (model is trained)")
-        mask_255 = postprocess_mask(raw_pred, (H, W), threshold=0.5)
-        seg_method = "deep_learning"
-    else:
-        # FALLBACK PATH: Model output is near-flat (untrained)
-        logger.warning(
-            f"⚠️ DL output range={pred_range:.6f} < {_FLAT_OUTPUT_THRESHOLD} — "
-            "model appears UNTRAINED. Using Classical CV fallback."
-        )
+        logger.info("ℹ️ DL seg model not loaded — executing Classical CV fallback path")
+        original_rgb = cv2.imread(image_path)
+        original_rgb = cv2.cvtColor(original_rgb, cv2.COLOR_BGR2RGB)
+        H, W = original_rgb.shape[:2]
         mask_255 = _classical_cv_segment(original_rgb)
         seg_method = "classical_cv_fallback"
+    else:
+        # ── Step 1: Preprocess ──────────────────────────────────────────────────
+        original_rgb, seg_tensor, (H, W) = load_and_preprocess_image(image_path)
+        seg_tensor = seg_tensor.to(device)
+
+        # ── Step 2: Deep Learning Segmentation ─────────────────────────────────
+        _seg_model.eval()
+        with torch.no_grad():
+            seg_output = _seg_model(seg_tensor)
+
+        raw_pred_tensor = seg_output.squeeze()
+
+        # Apply sigmoid if model returned raw logits (outside [0,1])
+        if raw_pred_tensor.min() < -0.01 or raw_pred_tensor.max() > 1.01:
+            logger.warning("⚠️ Raw logits detected — applying sigmoid")
+            raw_pred_tensor = torch.sigmoid(raw_pred_tensor)
+
+        raw_pred = raw_pred_tensor.cpu().numpy()
+        pred_range = float(raw_pred.max() - raw_pred.min())
+
+        logger.info(
+            f"DL output: min={raw_pred.min():.6f}, max={raw_pred.max():.6f}, "
+            f"mean={raw_pred.mean():.6f}, range={pred_range:.6f}, "
+            f">0.5px={int((raw_pred > 0.5).sum())}"
+        )
+
+        # ── Step 3: Choose segmentation path ───────────────────────────────────
+        if pred_range >= _FLAT_OUTPUT_THRESHOLD:
+            # PRIMARY PATH: DL model has meaningful output
+            logger.info("✅ Using DL segmentation path (model is trained)")
+            mask_255 = postprocess_mask(raw_pred, (H, W), threshold=0.5)
+            seg_method = "deep_learning"
+        else:
+            # FALLBACK PATH: Model output is near-flat (untrained)
+            logger.warning(
+                f"⚠️ DL output range={pred_range:.6f} < {_FLAT_OUTPUT_THRESHOLD} — "
+                "model appears UNTRAINED. Using Classical CV fallback."
+            )
+            mask_255 = _classical_cv_segment(original_rgb)
+            seg_method = "classical_cv_fallback"
 
     # ── Step 4: Mask coverage ───────────────────────────────────────────────
     mask_pixels = int(np.sum(mask_255 > 127))

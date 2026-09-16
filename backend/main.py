@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 import torch
 from dotenv import load_dotenv
 
@@ -26,6 +26,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 UPLOADS_DIR = PROJECT_ROOT / "uploads"
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 WEIGHTS_DIR = PROJECT_ROOT / "weights"
+FRONTEND_BUILD_DIR = PROJECT_ROOT / "frontend" / "build"
 
 UPLOADS_DIR.mkdir(exist_ok=True)
 OUTPUTS_DIR.mkdir(exist_ok=True)
@@ -103,6 +104,18 @@ async def health():
     })
 
 
-@app.api_route("/", methods=["GET", "HEAD"], tags=["System"])
-async def root():
-    return {"message": "Breast Cancer AI SaaS API", "docs": "/docs"}
+if FRONTEND_BUILD_DIR.exists():
+    logger.info(f"🎨 Mounting frontend UI from {FRONTEND_BUILD_DIR}")
+    if (FRONTEND_BUILD_DIR / "static").exists():
+        app.mount("/static", StaticFiles(directory=str(FRONTEND_BUILD_DIR / "static")), name="ui_static")
+
+    @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], tags=["UI"])
+    async def serve_ui(full_path: str):
+        target_file = FRONTEND_BUILD_DIR / full_path
+        if full_path and target_file.exists() and target_file.is_file():
+            return FileResponse(target_file)
+        return FileResponse(FRONTEND_BUILD_DIR / "index.html")
+else:
+    @app.api_route("/", methods=["GET", "HEAD"], tags=["System"])
+    async def root():
+        return {"message": "Breast Cancer AI SaaS API", "docs": "/docs"}
