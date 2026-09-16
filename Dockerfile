@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy project
 COPY . .
 
-# Create directories
-RUN mkdir -p uploads outputs weights
+# Create directories and generate initial model weights
+RUN mkdir -p uploads outputs weights && python -m backend.services.generate_dummy_weights
 
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

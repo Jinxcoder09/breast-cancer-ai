@@ -85,7 +85,7 @@ app.include_router(predict_router, prefix="/api", tags=["Prediction"])
 app.include_router(report_router,  prefix="/api", tags=["Report"])
 
 
-@app.get("/health", tags=["System"])
+@app.api_route("/health", methods=["GET", "HEAD"], tags=["System"])
 async def health():
     """API health check."""
     from backend.services.inference import _seg_model, _cls_model
@@ -103,6 +103,6 @@ async def health():
     })
 
 
-@app.get("/", tags=["System"])
+@app.api_route("/", methods=["GET", "HEAD"], tags=["System"])
 async def root():
     return {"message": "Breast Cancer AI SaaS API", "docs": "/docs"}

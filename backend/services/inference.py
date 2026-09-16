@@ -128,8 +128,13 @@ def load_models(weights_dir: str = "weights"):
             logger.error(f"❌ Failed to load seg weights: {e}")
             _seg_model = None
     else:
-        logger.warning(f"⚠️ Seg weights not found at {seg_weights}")
-        _seg_model = None
+        logger.warning(f"⚠️ Seg weights not found at {seg_weights} — initializing default architecture (will use Classical CV fallback)")
+        try:
+            _seg_model = get_segmentation_model().to(device)
+            _seg_model.eval()
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize default seg model: {e}")
+            _seg_model = None
 
     # ── Load Classification Model ──────────────────────────────────────────
     if cls_weights.exists():
@@ -152,8 +157,13 @@ def load_models(weights_dir: str = "weights"):
             logger.error(f"❌ Failed to load cls weights: {e}")
             _cls_model = None
     else:
-        logger.warning(f"⚠️ Cls weights not found at {cls_weights}")
-        _cls_model = None
+        logger.warning(f"⚠️ Cls weights not found at {cls_weights} — initializing default architecture")
+        try:
+            _cls_model = get_classification_model(num_classes=3).to(device)
+            _cls_model.eval()
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize default cls model: {e}")
+            _cls_model = None
 
     return _seg_model is not None
 

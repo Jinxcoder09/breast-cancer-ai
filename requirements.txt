@@ -8,6 +8,7 @@ pydantic==2.7.1
 # Database
 motor==3.4.0
 pymongo==4.7.2
+dnspython>=2.0.0
 
 # AI/ML
 torch>=2.0.0

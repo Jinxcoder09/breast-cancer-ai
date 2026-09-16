@@ -11,7 +11,13 @@ load_dotenv()
 
 logger = get_logger(__name__)
 
-MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
+MONGO_URL = os.getenv(
+    "MONGO_URL",
+    os.getenv(
+        "MONGODB_URI",
+        "mongodb+srv://ashishkumar575922_db_user:nFgOrQfsya1p3Vd0@cluster0.ghh5vab.mongodb.net/?appName=Cluster0"
+    )
+)
 DB_NAME = os.getenv("MONGO_DB_NAME", "breast_cancer_saas")
 
 _client = None
